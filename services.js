@@ -356,9 +356,20 @@ class SocketManager {
     }
 }
 
+async function closePool() {
+    if (globalPool) {
+        try {
+            await globalPool.close();
+        } finally {
+            globalPool = null;
+        }
+    }
+}
+
 module.exports = {
     DatabaseService,
     TinkoffPaymentService,
     AIService,
-    SocketManager
+    SocketManager,
+    closePool
 };

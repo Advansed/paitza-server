@@ -5,27 +5,25 @@ const socketIo                  = require('socket.io');
 const cors                      = require('cors');
 const { SOCKET_CONFIG, PORT }   = require('./config');
 const SocketHandlers            = require('./socketHandlers');
+const { closePool }             = require('./services');
 const nodemailer                = require('nodemailer');
-const bodyParser                = require('body-parser');
-const { S3Client }              = require("@aws-sdk/client-s3");
-const { PutObjectCommand }      = require("@aws-sdk/client-s3");
+const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl }          = require("@aws-sdk/s3-request-presigner");
-const { UNSIGNED_PAYLOAD }      = require("@aws-sdk/signature-v4");
 
 const VK_CONFIG = {
     URL:                        process.env.VK_URL,
     ACCESS_KEY:                 process.env.VK_ACCESS_KEY,
     SECRET_KEY:                 process.env.VK_SECRET_KEY,
-    BUCKET:                     process.env.VK_BUCKET 
+    BUCKET:                     process.env.VK_BUCKET
 };
 
-const vkClient = new S3Client({ 
+const vkClient = new S3Client({
     region: 'ru-msk',
     endpoint: VK_CONFIG.URL,
     credentials: {
         accessKeyId: VK_CONFIG.ACCESS_KEY,
         secretAccessKey: VK_CONFIG.SECRET_KEY
-    }, 
+    },
     forcePathStyle: false,
     disableHostPrefix: false,
     requestChecksumCalculation: "WHEN_REQUIRED",
@@ -39,62 +37,73 @@ const s3Client = new S3Client({
         accessKeyId:            process.env.YC_ACCESS_KEY_ID,
         secretAccessKey:        process.env.YC_SECRET_ACCESS_KEY,
     },
-    requestChecksumCalculation: "WHEN_REQUIRED", 
+    requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",
     signatureVersion: 'v4'
 });
 
-module.exports = s3Client;
-
 const transporter = nodemailer.createTransport({
-    host:       'smtp.mail.ru',
-    port:       465,
+    host:       process.env.SMTP_HOST || 'smtp.mail.ru',
+    port:       Number(process.env.SMTP_PORT) || 465,
     secure:     true,
     auth: {
-        user:     'gvr_no_reply@bk.ru',
-        pass:     'a5ajTkBvQfYmZzmAvDa9'
+        user:     process.env.SMTP_USER,
+        pass:     process.env.SMTP_PASS
     }
 });
 
+const jsonDefault = express.json({ limit: '2mb' });
+const jsonLarge = express.json({ limit: '50mb' });
+const urlencodedDefault = express.urlencoded({ extended: true, limit: '2mb' });
+
+const LARGE_BODY_PATHS = new Set([
+    '/api/sendimage',
+    '/api/sendEmail',
+    '/api/set_location',
+    '/api/check_passport_photo',
+    '/api/check_passport_registration',
+]);
+
 class App {
-    
+
     constructor() {
         this.app = express();
         this.server = http.createServer(this.app);
         this.io = null;
-        this.socketHandlers = null; // Инициализируем null
+        this.socketHandlers = null;
+        this.isShuttingDown = false;
 
         this.setupCORS();
-        
-        this.app.use(bodyParser.json({ limit: '50mb' }));
-        this.app.use(bodyParser.urlencoded({
-            extended: true,
-            limit: '50mb',
-            parameterLimit: 50000
-        }));
-
         this.setupMiddleware();
         this.setupRoutes();
-        this.setupSocketIO();   // Здесь создаются io и socketHandlers
+        this.setupSocketIO();
         this.setupErrorHandling();
     }
 
-    setupCORS() {
+    createCorsOriginChecker(label) {
         const allowedOrigins = this.getAllowedOrigins();
 
+        return (origin, callback) => {
+            if (!origin) return callback(null, true);
+
+            const allowed =
+                allowedOrigins.includes(origin) ||
+                origin.startsWith('file://') ||
+                origin.startsWith('ionic://') ||
+                origin.startsWith('capacitor://');
+
+            if (allowed) {
+                return callback(null, true);
+            }
+
+            console.log(`❌ ${label} заблокирован origin:`, origin);
+            return callback(new Error('Not allowed by CORS'));
+        };
+    }
+
+    setupCORS() {
         const corsOptions = {
-            origin: function (origin, callback) {
-                if (!origin) return callback(null, true);
-                if (allowedOrigins.indexOf(origin) !== -1 ||
-                    origin.startsWith('file://') ||
-                    origin.startsWith('ionic://') ||
-                    origin.startsWith('capacitor://')) {
-                    callback(null, true);
-                } else {
-                    console.log('❌ Заблокирован CORS для origin:', origin);
-                    callback(null, true);
-                }
-            },
+            origin: this.createCorsOriginChecker('CORS'),
             methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
             credentials: true,
@@ -107,13 +116,13 @@ class App {
         this.app.options('/api/*', cors(corsOptions));
 
         console.log('✅ CORS настроен для API');
-        console.log('📋 Разрешенные origins:', allowedOrigins);
+        console.log('📋 Разрешенные origins:', this.getAllowedOrigins());
     }
 
     getAllowedOrigins() {
         const origins = [
             'http://localhost:3000',
-            'http://localhost:3001', 
+            'http://localhost:3001',
             'http://localhost:8080',
             'http://localhost:8100',
             'https://localhost:3000',
@@ -130,60 +139,138 @@ class App {
             'https://127.0.0.1:8080',
             'https://127.0.0.1:8100',
             'http://10.30.20.30:8100',
-            'https://paitza.com', 
             'https://paitza.com',
+            'https://gruzreis.ru',
+            'https://www.gruzreis.ru',
             'capacitor://localhost',
             'ionic://localhost',
             'file://'
         ];
-        
+
         if (process.env.CORS_ORIGIN) {
             process.env.CORS_ORIGIN.split(',').forEach(origin => {
-                if (!origins.includes(origin)) {
-                    origins.push(origin);
+                const trimmed = origin.trim();
+                if (trimmed && !origins.includes(trimmed)) {
+                    origins.push(trimmed);
                 }
             });
         }
-        
+
         return origins;
     }
 
     setupMiddleware() {
-        this.app.use(express.json({ limit: '10mb' }));
-        this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-        
         this.app.use((req, res, next) => {
-            console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-            console.log(`📱 Origin: ${req.headers.origin || 'нет'}`);
-            console.log(`📱 User-Agent: ${req.headers['user-agent'] || 'нет'}`);
+            const parser = LARGE_BODY_PATHS.has(req.path) ? jsonLarge : jsonDefault;
+            parser(req, res, (err) => {
+                if (err) return next(err);
+                urlencodedDefault(req, res, next);
+            });
+        });
+
+        this.app.use((req, res, next) => {
+            if (process.env.LOG_HTTP === '1') {
+                console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+            }
             next();
         });
     }
 
+    /** Вызов SP без fake-socket emit; опционально уведомить online-получателя */
+    async runProcedure(path, params) {
+        return this.socketHandlers.handleMethod(
+            { emit: () => {} },
+            path,
+            params
+        );
+    }
+
+    async requireToken(tokenOrQuery) {
+        const token = typeof tokenOrQuery === 'string'
+            ? tokenOrQuery
+            : tokenOrQuery?.token;
+        if (!token) return null;
+        return this.socketHandlers.checkToken({ token });
+    }
+
+    async notifyChatRecipient(recipientId, cargo, senderId) {
+        const recipientSocket = this.socketHandlers.socketManager.findSocket(recipientId);
+        if (!recipientSocket?.userToken) return;
+
+        await this.socketHandlers.handleMethod(recipientSocket, 'get_chats', {
+            token: recipientSocket.userToken
+        });
+        await this.socketHandlers.handleMethod(recipientSocket, 'get_messages', {
+            token: recipientSocket.userToken,
+            cargo,
+            recipient: senderId
+        });
+    }
+
     setupRoutes() {
-        this.app.get('/api/status', async (req, res) => {
+        this.app.get('/api/status', (req, res) => {
             res.json({
                 status: 'running',
                 connections: this.io ? this.io.engine.clientsCount : 0,
                 uptime: process.uptime(),
-                timestamp: new Date().toISOString(),
-                cors: 'enabled',
-                allowedOrigins: this.getAllowedOrigins()
+                timestamp: new Date().toISOString()
             });
         });
 
-        this.app.get('/api/getVersion', async (req, res) => {
-            res.json({ success: true, data: "1.0.1" });
+        this.app.get('/api/getVersion', (req, res) => {
+            res.json({ success: true, data: process.env.APP_VERSION || '1.0.1' });
+        });
+
+        this.app.post('/api/check_passport_photo', async (req, res) => {
+            try {
+                const { token, image, mimeType, mime_type, expected } = req.body;
+                const user = await this.requireToken(token);
+                if (!user) {
+                    return res.status(401).json({ success: false, message: 'Неверный токен' });
+                }
+                const result = await this.socketHandlers.passportAI.verifyPassportPhoto(image, {
+                    mimeType: mimeType || mime_type,
+                    expected,
+                });
+                res.json(result);
+            } catch (error) {
+                res.json({ success: false, message: error.message });
+            }
+        });
+
+        this.app.post('/api/check_passport_registration', async (req, res) => {
+            try {
+                const { token, image, mimeType, mime_type, expected } = req.body;
+                const user = await this.requireToken(token);
+                if (!user) {
+                    return res.status(401).json({ success: false, message: 'Неверный токен' });
+                }
+                const result = await this.socketHandlers.passportAI.verifyPassportRegistration(image, {
+                    mimeType: mimeType || mime_type,
+                    expected,
+                });
+                res.json(result);
+            } catch (error) {
+                res.json({ success: false, message: error.message });
+            }
         });
 
         this.app.post('/api/sendimage', async (req, res) => {
             try {
                 const { token, recipient, cargo, image } = req.body;
-                const result = await this.socketHandlers.handleMethod(
-                    { emit: () => {} },
-                    'send_image', 
-                    { token, recipient, cargo, image, message: "" }
-                );
+                const user = await this.requireToken(token);
+                if (!user) {
+                    return res.status(401).json({ success: false, message: 'Неверный токен' });
+                }
+
+                const result = await this.runProcedure('send_image', {
+                    token, recipient, cargo, image, message: ''
+                });
+
+                if (result?.success) {
+                    await this.notifyChatRecipient(recipient, cargo, user.id);
+                }
+
                 res.json(result);
             } catch (error) {
                 res.json({ success: false, message: error.message });
@@ -193,11 +280,22 @@ class App {
         this.app.post('/api/set_location', async (req, res) => {
             try {
                 const { token, recipient, cargo, image } = req.body;
-                const result = await this.socketHandlers.handleMethod(
-                    { emit: () => {} },
-                    'set_location', 
-                    { token, recipient, cargo, image, message: "" }
-                );
+                const user = await this.requireToken(token);
+                if (!user) {
+                    return res.status(401).json({ success: false, message: 'Неверный токен' });
+                }
+
+                const result = await this.runProcedure('set_location', {
+                    token, recipient, cargo, image, message: ''
+                });
+
+                if (result?.success && recipient) {
+                    const recipientSocket = this.socketHandlers.socketManager.findSocket(recipient);
+                    if (recipientSocket) {
+                        recipientSocket.emit('set_location', result);
+                    }
+                }
+
                 res.json(result);
             } catch (error) {
                 res.json({ success: false, message: error.message });
@@ -207,161 +305,163 @@ class App {
         this.app.post('/api/sendEmail', async (req, res) => {
             try {
                 const { token, email, pdf } = req.body;
-                console.log("send_email", email);
-                console.log("pdf", pdf ? pdf.substring(0, 64) : 'нет');
+                const user = await this.requireToken(token);
+                if (!user) {
+                    return res.status(401).json({ success: false, message: 'Неверный токен' });
+                }
+                if (!email || !pdf) {
+                    return res.status(400).json({ success: false, message: 'email и pdf обязательны' });
+                }
+                if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+                    return res.status(500).json({ success: false, message: 'SMTP не настроен (SMTP_USER/SMTP_PASS)' });
+                }
 
                 const mailOptions = {
-                    from: 'gvr_no_reply@bk.ru',
+                    from: process.env.SMTP_USER,
                     to: email,
                     subject: 'Счет на оплату',
                     text: 'См. вложение.',
                     attachments: [
-                      {
-                        filename: 'invoice.pdf',
-                        content: pdf,
-                        encoding: 'base64',
-                        contentType: 'application/pdf',
-                        disposition: 'attachment'
-                      }
+                        {
+                            filename: 'invoice.pdf',
+                            content: pdf,
+                            encoding: 'base64',
+                            contentType: 'application/pdf',
+                            disposition: 'attachment'
+                        }
                     ]
-                  };
+                };
 
                 transporter.sendMail(mailOptions, (error, info) => {
                     if (error) {
-                      console.error('Ошибка:', error);
-                      res.json({ success: false, message: error.message });
-                    } else {
-                      console.log(info);
-                      console.log('Письмо отправлено:', info.response);
-                      res.json({ success: true, message: "Письмо отправлено" });
+                        console.error('Ошибка SMTP:', error.message);
+                        return res.json({ success: false, message: error.message });
                     }
+                    console.log('Письмо отправлено:', info.response);
+                    res.json({ success: true, message: 'Письмо отправлено' });
                 });
-                
             } catch (error) {
                 res.json({ success: false, message: error.message });
             }
         });
 
-        this.app.post('/api/company', async (req, res) => {
+        const syncRoutes = [
+            ['/api/company', 'upd_company'],
+            ['/api/kassa', 'upd_kassa'],
+            ['/api/cargos', 'upd_cargo'],
+            ['/api/deals', 'upd_deals'],
+            ['/api/deal_details', 'upd_deal_details']
+        ];
+
+        for (const [route, procedure] of syncRoutes) {
+            this.app.post(route, async (req, res) => {
+                try {
+                    const data = req.body;
+                    const user = await this.requireToken(data);
+                    if (!user) {
+                        return res.status(401).json({ success: false, message: 'Неверный токен' });
+                    }
+                    const result = await this.runProcedure(procedure, data);
+                    res.json(result);
+                } catch (error) {
+                    res.json({ success: false, message: error.message });
+                }
+            });
+        }
+
+        this.app.post('/api/tinkoff_payment', async (req, res) => {
             try {
-                const data = req.body;
-                const result = await this.socketHandlers.handleMethod(
-                    { emit: () => {} },
-                    'upd_company', 
-                    data
-                );
-                res.json(result);                                
-            } catch (error) {
-                res.json({ success: false, message: error.message });
-            }
-        });
+                const body = req.body || {};
+                console.log('Tinkoff callback:', {
+                    Status: body.Status,
+                    PaymentId: body.PaymentId,
+                    OrderId: body.OrderId
+                });
 
-        this.app.post('/api/kassa', async (req, res) => {
-            try {
-                const data = req.body;
-                const result = await this.socketHandlers.handleMethod(
-                    { emit: () => {} },
-                    'upd_kassa', 
-                    data
-                );
-                res.json(result);                                
-            } catch (error) {
-                res.json({ success: false, message: error.message });
-            }
-        });
+                if (body.OrderId && body.Status) {
+                    const statusMap = {
+                        CONFIRMED: 2,
+                        AUTHORIZED: 2,
+                        DEADLINE_EXPIRED: 3,
+                        REJECTED: 4,
+                        CANCELED: 4,
+                        REVERSED: 4
+                    };
+                    const orderStatus = statusMap[body.Status];
+                    if (orderStatus !== undefined) {
+                        await this.runProcedure('set_payment', {
+                            id: body.OrderId,
+                            paymentId: body.PaymentId,
+                            orderStatus
+                        });
+                    }
+                }
 
-        this.app.post('/api/cargos', async (req, res) => {
-            try {
-                const data = req.body;
-                console.log("data", req.body);
-                const result = await this.socketHandlers.handleMethod(
-                    { emit: () => {} },
-                    'upd_cargo', 
-                    data
-                );
-                res.json(result);                                
+                // Tinkoff ожидает OK
+                res.json({ success: true });
             } catch (error) {
-                res.json({ success: false, message: error.message });
+                console.error('Tinkoff callback error:', error.message);
+                res.json({ success: true });
             }
-        });
-
-        this.app.post('/api/deals', async (req, res) => {
-            try {
-                const data = req.body;
-                const result = await this.socketHandlers.handleMethod(
-                    { emit: () => {} },
-                    'upd_deals', 
-                    data
-                );
-                res.json(result);                                
-            } catch (error) {
-                res.json({ success: false, message: error.message });
-            }
-        });
-
-        this.app.post('/api/deal_details', async (req, res) => {
-            try {
-                const data = req.body;
-                const result = await this.socketHandlers.handleMethod(
-                    { emit: () => {} },
-                    'upd_deal_details', 
-                    data
-                );
-                res.json(result);                                
-            } catch (error) {
-                res.json({ success: false, message: error.message });
-            }
-        });
-
-        this.app.post('/api/tinkoff_payment', (req, res) => {
-            console.log('Tinkoff callback:', req.body);
-            res.json({ success: true });
         });
 
         this.app.get('/api/get_token', async (req, res) => {
-            console.log('Tinkoff callback:', req.query);
-            try{
-                const result = await this.socketHandlers.checkToken( req.query )
+            try {
+                const result = await this.socketHandlers.checkToken(req.query);
+                if (!result) {
+                    return res.status(401).json({ success: false, message: 'Неверный токен' });
+                }
                 res.json({ success: true, data: result });
             } catch (error) {
-                res.json({success: false, message: error.message })
+                res.json({ success: false, message: error.message });
             }
         });
 
         this.app.get('/api/getUrl', async (req, res) => {
-            const result = await this.socketHandlers.checkToken(req.query);
-        
-            if (result) {
-                const fileName = `${req.query.cargo_id}/${result.id}/${req.query.recipient_id}/${req.query.filename}`;
-                const bucketName = 'chat-fotos'; 
-        
-                try {
-                    const command = new PutObjectCommand({
-                        Bucket:                 bucketName,
-                        Key:                    fileName,
-                        ContentType:            '',
-                        ChecksumAlgorithm:      undefined
-                    });
-        
-                    const presignedUrl = await getSignedUrl(s3Client, command, { 
-                        expiresIn: 60,
-                        signableHeaders: new Set(['host']),
-                    });
-        
-                    res.json({
-                        uploadUrl: presignedUrl,
-                        filePath: fileName,
-                        publicUrl: `https://storage.yandexcloud.net/${bucketName}/${fileName}`
-                    });
-                } catch (error) {
-                    res.status(500).json({ error: error.message });
+            try {
+                const result = await this.socketHandlers.checkToken(req.query);
+
+                if (!result) {
+                    return res.status(401).json({ error: 'Неверный токен' });
                 }
-            } else res.status(401).json({ error: "Неверный токен" });
+
+                const fileName = `${req.query.cargo_id}/${result.id}/${req.query.recipient_id}/${req.query.filename}`;
+                const bucketName = 'chat-fotos';
+
+                const command = new PutObjectCommand({
+                    Bucket: bucketName,
+                    Key: fileName,
+                    ContentType: '',
+                    ChecksumAlgorithm: undefined
+                });
+
+                const presignedUrl = await getSignedUrl(s3Client, command, {
+                    expiresIn: 60,
+                    signableHeaders: new Set(['host']),
+                });
+
+                res.json({
+                    uploadUrl: presignedUrl,
+                    filePath: fileName,
+                    publicUrl: `https://storage.yandexcloud.net/${bucketName}/${fileName}`
+                });
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
         });
 
         this.app.get('/api/get_VKUrl', async (req, res) => {
-            const { filename } = req.query;
             try {
+                const user = await this.requireToken(req.query);
+                if (!user) {
+                    return res.status(401).json({ error: true, message: 'Неверный токен' });
+                }
+
+                const { filename } = req.query;
+                if (!filename) {
+                    return res.status(400).json({ error: true, message: 'filename обязателен' });
+                }
+
                 const command = new PutObjectCommand({
                     Bucket: VK_CONFIG.BUCKET,
                     Key: filename,
@@ -381,9 +481,24 @@ class App {
 
                 res.json({ uploadUrl, fileUrl });
             } catch (error) {
-                console.error('❌ Ошибка:', error);
+                console.error('❌ get_VKUrl:', error.message);
                 res.status(500).json({ error: true, message: error.message });
             }
+        });
+
+        // Заглушки для страницы удаления: нужны хранимки / SMS-флоу на бэке
+        this.app.post('/api/auth/send-delete-code', async (req, res) => {
+            res.status(501).json({
+                success: false,
+                message: 'Удаление аккаунта ещё не подключено к API (нужна хранимка + SMS)'
+            });
+        });
+
+        this.app.post('/api/auth/confirm-delete', async (req, res) => {
+            res.status(501).json({
+                success: false,
+                message: 'Удаление аккаунта ещё не подключено к API (нужна хранимка + SMS)'
+            });
         });
 
         this.app.get('/api/privacy', (req, res) => {
@@ -421,11 +536,11 @@ class App {
                     <title>Удаление аккаунта — GruzReis</title>
                     <style>
                         body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f4f7f6; }
-                        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 400px; width: 100%; text-align: center; }
+                        .card { background: white; padding: 30px; border-radius: 12px; max-width: 400px; width: 100%; text-align: center; }
                         h1 { color: #e74c3c; font-size: 22px; }
                         p { color: #666; font-size: 14px; margin-bottom: 20px; }
                         input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
-                        button { width: 100%; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: 0.3s; }
+                        button { width: 100%; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
                         .btn-code { background-color: #3498db; color: white; }
                         .btn-delete { background-color: #e74c3c; color: white; display: none; }
                         .status-msg { margin-top: 15px; font-size: 13px; }
@@ -452,6 +567,7 @@ class App {
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ phone })
                             });
+                            const data = await res.json().catch(() => ({}));
                             if(res.ok) {
                                 document.getElementById('codeSection').style.display = 'block';
                                 document.getElementById('deleteBtn').style.display = 'block';
@@ -459,7 +575,7 @@ class App {
                                 document.getElementById('status').innerText = 'Код отправлен на ваш номер';
                                 document.getElementById('status').style.color = 'green';
                             } else {
-                                alert('Ошибка при отправке СМС. Проверьте номер.');
+                                alert(data.message || 'Ошибка при отправке СМС. Проверьте номер.');
                             }
                         }
                         async function confirmDelete() {
@@ -472,10 +588,11 @@ class App {
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ phone, code })
                                 });
+                                const data = await res.json().catch(() => ({}));
                                 if(res.ok) {
                                     document.body.innerHTML = '<div class="card"><h1>Аккаунт удален</h1><p>Ваши данные успешно стерты из системы GruzReis.</p></div>';
                                 } else {
-                                    alert('Неверный код или ошибка сервера.');
+                                    alert(data.message || 'Неверный код или ошибка сервера.');
                                 }
                             }
                         }
@@ -487,45 +604,41 @@ class App {
     }
 
     setupSocketIO() {
-        const allowedOrigins = this.getAllowedOrigins();
-
-        // Создаём io
         this.io = socketIo(this.server, {
+            ...SOCKET_CONFIG,
             cors: {
-                origin: function (origin, callback) {
-                    if (!origin) return callback(null, true);
-                    if (allowedOrigins.indexOf(origin) !== -1 ||
-                        origin.startsWith('file://') ||
-                        origin.startsWith('ionic://') ||
-                        origin.startsWith('capacitor://')) {
-                        callback(null, true);
-                    } else {
-                        console.log('❌ Socket.IO заблокирован origin:', origin);
-                        callback(null, true);
-                    }
-                },
+                origin: this.createCorsOriginChecker('Socket.IO'),
                 methods: ['GET', 'POST'],
                 credentials: true,
                 allowedHeaders: ['Content-Type', 'Authorization']
             },
-            transports: ['websocket', 'polling'],
+            transports: SOCKET_CONFIG.transports || ['websocket', 'polling'],
             allowEIO3: true
         });
 
-        // Создаём socketHandlers, передавая io
         this.socketHandlers = new SocketHandlers(this.io);
 
         this.io.on('connection', (socket) => {
-            console.log(`🔌 Socket.IO подключен: ${socket.id}`);
-            console.log(`📱 Socket Origin: ${socket.handshake.headers.origin || 'нет'}`);
+            if (process.env.LOG_HTTP === '1') {
+                console.log(`Socket.IO подключен: ${socket.id}`);
+            }
             this.socketHandlers.handleConnection(socket);
         });
 
-        console.log('✅ Socket.IO настроен с CORS');
+        console.log('✅ Socket.IO настроен с CORS и SOCKET_CONFIG');
     }
 
     setupErrorHandling() {
-        process.on('unhandledRejection', (reason, promise) => {
+        this.app.use((error, req, res, next) => {
+            console.error('❌ Express error:', error.message);
+            if (res.headersSent) return next(error);
+            res.status(error.message === 'Not allowed by CORS' ? 403 : 500).json({
+                success: false,
+                message: error.message || 'Внутренняя ошибка сервера'
+            });
+        });
+
+        process.on('unhandledRejection', (reason) => {
             console.error('❌ Необработанное отклонение промиса:', reason);
         });
 
@@ -539,28 +652,53 @@ class App {
     }
 
     async gracefulShutdown() {
+        if (this.isShuttingDown) return;
+        this.isShuttingDown = true;
+
         console.log('🔄 Начинаем graceful shutdown...');
-        
-        this.server.close(() => {
-            console.log('✅ HTTP сервер закрыт');
+
+        const closeHttp = () => new Promise((resolve) => {
+            this.server.close(() => {
+                console.log('✅ HTTP сервер закрыт');
+                resolve();
+            });
         });
-        
-        if (this.io) {
+
+        const closeIo = () => new Promise((resolve) => {
+            if (!this.io) return resolve();
             this.io.close(() => {
                 console.log('✅ Socket.IO сервер закрыт');
+                resolve();
             });
+        });
+
+        try {
+            await Promise.race([
+                Promise.all([closeHttp(), closeIo(), closePool()]),
+                new Promise((resolve) => setTimeout(resolve, 8000))
+            ]);
+            console.log('✅ Graceful shutdown завершен');
+            process.exit(0);
+        } catch (error) {
+            console.error('❌ Ошибка shutdown:', error);
+            process.exit(1);
         }
-        
-        console.log('✅ Graceful shutdown завершен');
-        process.exit(0);
     }
 
     start() {
+        
+        if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+            console.warn('⚠️ SMTP_USER/SMTP_PASS не заданы — /api/sendEmail будет недоступен');
+        }
+
+        if (!process.env.GEMINI_API_KEY) {
+            console.warn('⚠️ GEMINI_API_KEY не задан — проверка паспорта будет недоступна');
+        }
+
         this.server.listen(PORT, '0.0.0.0', () => {
             console.log(`🚀 Сервер запущен на порту ${PORT}`);
             console.log(`📡 Адрес: http://0.0.0.0:${PORT}`);
             console.log(`📊 Статус: http://localhost:${PORT}/api/status`);
-            console.log(`🔒 CORS включен (только для /api)`);
         });
     }
 }

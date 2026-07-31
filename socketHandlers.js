@@ -4,6 +4,7 @@ const fs                            = require('fs');
 const path                          = require('path');
 const { DatabaseService, TinkoffPaymentService, AIService, SocketManager } 
                                     = require('./services');
+const PassportVerificationService   = require('./passportVerification');
 
 const GATEWAY_URL = 'https://gatewayapi.telegram.org/';
 
@@ -410,6 +411,7 @@ class SocketHandlers {
         this.db                     = new DatabaseService();
         this.payment                = new TinkoffPaymentService();
         this.ai                     = new AIService();
+        this.passportAI             = new PassportVerificationService();
         this.socketManager          = new SocketManager();
         
         // Привязываем контекст для обработчиков
@@ -420,6 +422,7 @@ class SocketHandlers {
         this.handleChat             = this.handleChat.bind(this);
         this.handlePayment          = this.handlePayment.bind(this);
         this.handleAI               = this.handleAI.bind(this);
+        this.handlePassportCheck    = this.handlePassportCheck.bind(this);
 
         // this.startChecking()
     }
@@ -597,6 +600,8 @@ class SocketHandlers {
         socket.on('set_user',               (data) => this.handleProfile(socket, 'set_user', data));
         socket.on('set_passport',           (data) => this.handleProfile(socket, 'set_passport', data));
         socket.on('get_passport',           (data) => this.handleProfile(socket, 'get_passport', data));
+        socket.on('check_passport_photo',   (data) => this.handlePassportCheck(socket, 'check_passport_photo', data));
+        socket.on('check_passport_registration', (data) => this.handlePassportCheck(socket, 'check_passport_registration', data));
         socket.on('set_transport',          (data) => this.handleProfile(socket, 'set_transport', data));
         socket.on('get_transport',          (data) => this.handleProfile(socket, 'get_transport', data));
         socket.on('set_company',            (data) => this.handleProfile(socket, 'set_company', data));
@@ -1021,6 +1026,34 @@ class SocketHandlers {
                 success: false,
                 message: 'Ошибка обработки запроса ЛК'
             });
+        }
+    }
+
+    async handlePassportCheck(socket, event, data) {
+        try {
+            const image = data?.image || data?.photo || data?.file;
+            const options = {
+                mimeType: data?.mimeType || data?.mime_type,
+                expected: data?.expected,
+            };
+
+            let result;
+            if (event === 'check_passport_photo') {
+                result = await this.passportAI.verifyPassportPhoto(image, options);
+            } else {
+                result = await this.passportAI.verifyPassportRegistration(image, options);
+            }
+
+            socket.emit(event, result);
+            return result;
+        } catch (error) {
+            console.error(`❌ Ошибка проверки паспорта [${event}]:`, error);
+            const response = {
+                success: false,
+                message: error.message || 'Ошибка проверки паспорта',
+            };
+            socket.emit(event, response);
+            return response;
         }
     }
 
