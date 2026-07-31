@@ -13,7 +13,7 @@ const gatewayHeaders = {
     'Content-Type': 'application/json'
 };
 
-async function sendSMS(to, msg) {
+const sendSMS                                   = async (to, msg) => {
     const apiId = process.env.SMS_API_KEY;
 
     // 1. Ранний выход, если нет ключа
@@ -59,7 +59,7 @@ async function sendSMS(to, msg) {
 }
 
 
-async function sendGatewayVerification(phoneNumber) {
+const sendGatewayVerification                   = async (phoneNumber) => {
     try {
         // Очищаем номер: оставляем только цифры
         const cleanPhone = phoneNumber.replace(/\D/g, '');
@@ -95,7 +95,8 @@ async function sendGatewayVerification(phoneNumber) {
     }
 }
 
-async function checkGatewayCode( requestId, code ) {
+
+const checkGatewayCode                          = async ( requestId, code ) => {
     try {
         // Убираем лишние слеши из URL
         const url = `${GATEWAY_URL.replace(/\/$/, '')}/checkVerificationStatus`;
@@ -141,7 +142,8 @@ async function checkGatewayCode( requestId, code ) {
     }
 }
 
-async function toPDF(htmlString) {
+
+const toPDF                                     = async (htmlString) => {
     const browser = await puppeteer.launch({
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
@@ -154,7 +156,8 @@ async function toPDF(htmlString) {
     return str
 }
 
-function fillTemplate(template, data) {
+
+const fillTemplate                              = (template, data) => {
     let result = template;
     
     // Замена основных параметров
@@ -201,7 +204,8 @@ function fillTemplate(template, data) {
     return result;
 }
 
-function fillTemplate1(html, params) {
+
+const fillTemplate1                             = (html, params) => {
     if (!params || typeof params !== 'object') {
         return html;
     }
@@ -367,7 +371,8 @@ function fillTemplate1(html, params) {
 
 }
 
-async function getPaidOperations( dateString ) {
+
+const getPaidOperations                         = async ( dateString ) => {
     // Запрос к API
     const API_URL = 'https://business.tbank.ru/openapi/api/v1/statement?accountNumber=40702810710001976908&from=' + dateString + '&inns=1400035296';
     
@@ -404,7 +409,28 @@ async function getPaidOperations( dateString ) {
   
     return result;
 }
-  
+
+
+const formatDateWithTimezone                    = (date) => {
+    // Функция для добавления ведущего нуля
+    const pad = (n) => `${Math.floor(Math.abs(n))}`.padStart(2, '0');
+    
+    // Получаем смещение временной зоны
+    const tzOffset = -date.getTimezoneOffset();
+    const diff = tzOffset >= 0 ? '+' : '-';
+    const timezoneString = diff + pad(tzOffset / 60) + ':' + pad(tzOffset % 60);
+    
+    // Формируем строку даты
+    return date.getFullYear() +
+      '-' + pad(date.getMonth() + 1) +
+      '-' + pad(date.getDate()) +
+      'T' + pad(date.getHours()) +
+      ':' + pad(date.getMinutes()) +
+      ':' + pad(date.getSeconds()) +
+      timezoneString;
+}
+
+
 class SocketHandlers {
     constructor(io) {
         this.io                     = io;
@@ -1066,6 +1092,7 @@ class SocketHandlers {
                     result = await this.handleMethod(socket, 'set_passport', data);
                     if (result.success) {
                         // После сохранения паспорта загружаем обновленные данные
+                        console.log("set_passport", data)
                         await this.handleMethod(socket, 'get_passport', data);
                     }
                     break;
@@ -1163,28 +1190,9 @@ class SocketHandlers {
         }
     
     }
-
     
 }
 
-function formatDateWithTimezone(date) {
-    // Функция для добавления ведущего нуля
-    const pad = (n) => `${Math.floor(Math.abs(n))}`.padStart(2, '0');
-    
-    // Получаем смещение временной зоны
-    const tzOffset = -date.getTimezoneOffset();
-    const diff = tzOffset >= 0 ? '+' : '-';
-    const timezoneString = diff + pad(tzOffset / 60) + ':' + pad(tzOffset % 60);
-    
-    // Формируем строку даты
-    return date.getFullYear() +
-      '-' + pad(date.getMonth() + 1) +
-      '-' + pad(date.getDate()) +
-      'T' + pad(date.getHours()) +
-      ':' + pad(date.getMinutes()) +
-      ':' + pad(date.getSeconds()) +
-      timezoneString;
-}
 
 
 module.exports = SocketHandlers;
