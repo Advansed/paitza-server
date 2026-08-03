@@ -452,7 +452,7 @@ class App {
             }
         });
 
-        this.app.get('/api/getSighUrl', async (req, res) => {
+        this.app.get('/api/getSignUrl', async (req, res) => {
             try {
                 const result = await this.socketHandlers.checkToken(req.query);
 
