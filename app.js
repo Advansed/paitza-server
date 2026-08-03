@@ -452,6 +452,39 @@ class App {
             }
         });
 
+        this.app.get('/api/getSighUrl', async (req, res) => {
+            try {
+                const result = await this.socketHandlers.checkToken(req.query);
+
+                if (!result) {
+                    return res.status(401).json({ error: 'Неверный токен' });
+                }
+
+                const fileName = `${req.query.cargo_id}/${result.id}/${req.query.recipient_id}/${req.query.filename}`;
+                const bucketName = 'docfotos';
+
+                const command = new PutObjectCommand({
+                    Bucket: bucketName,
+                    Key: fileName,
+                    ContentType: '',
+                    ChecksumAlgorithm: undefined
+                });
+
+                const presignedUrl = await getSignedUrl(s3Client, command, {
+                    expiresIn: 60,
+                    signableHeaders: new Set(['host']),
+                });
+
+                res.json({
+                    uploadUrl: presignedUrl,
+                    filePath: fileName,
+                    publicUrl: `https://storage.yandexcloud.net/${bucketName}/${fileName}`
+                });
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+
         this.app.get('/api/get_VKUrl', async (req, res) => {
             try {
                 const user = await this.requireToken(req.query);
