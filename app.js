@@ -7,7 +7,7 @@ const { SOCKET_CONFIG, PORT }   = require('./config');
 const SocketHandlers            = require('./socketHandlers');
 const { closePool }             = require('./services');
 const nodemailer                = require('nodemailer');
-const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl }          = require("@aws-sdk/s3-request-presigner");
 
 const VK_CONFIG = {
@@ -463,22 +463,35 @@ class App {
                 const fileName = `${req.query.cargo_id}/${result.id}/${req.query.recipient_id}/${req.query.filename}`;
                 const bucketName = 'docfotos';
 
-                const command = new PutObjectCommand({
+                const command1 = new PutObjectCommand({
                     Bucket: bucketName,
                     Key: fileName,
                     ContentType: '',
                     ChecksumAlgorithm: undefined
                 });
 
-                const presignedUrl = await getSignedUrl(s3Client, command, {
+                const presignedUrl = await getSignedUrl(s3Client, command1, {
+                    expiresIn: 60,
+                    signableHeaders: new Set(['host']),
+                });
+
+                const command2 = new GetObjectCommand({
+                    Bucket: bucketName,
+                    Key: fileName,
+                    ContentType: '',
+                    ChecksumAlgorithm: undefined
+                });
+
+                const signUrl = await getSignedUrl(s3Client, command2, {
                     expiresIn: 60,
                     signableHeaders: new Set(['host']),
                 });
 
                 res.json({
-                    uploadUrl: presignedUrl,
-                    filePath: fileName,
-                    publicUrl: `https://storage.yandexcloud.net/${bucketName}/${fileName}`
+                    uploadUrl:    presignedUrl,
+                    filePath:     fileName,
+                    signUrl:      signUrl,
+                    publicUrl:    `https://storage.yandexcloud.net/${bucketName}/${fileName}`
                 });
             } catch (error) {
                 res.status(500).json({ error: error.message });
