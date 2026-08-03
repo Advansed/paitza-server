@@ -142,6 +142,8 @@ class App {
             'https://paitza.com',
             'https://gruzreis.ru',
             'https://www.gruzreis.ru',
+            'https://grusvreis.ru',
+            'https://www.grusvreis.ru',
             'capacitor://localhost',
             'ionic://localhost',
             'file://'
