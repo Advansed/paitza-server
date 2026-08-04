@@ -462,6 +462,8 @@ class App {
 
                 const fileName                          = req.query.filename;
 
+                console.log('fileName', fileName);
+
                 const bucketName                        = 'docfotos';
 
                 const command1                          = new PutObjectCommand({
