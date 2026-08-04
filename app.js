@@ -31,11 +31,11 @@ const vkClient = new S3Client({
 });
 
 const s3Client = new S3Client({
-    region:                     process.env.YC_REGION || "ru-central1",
-    endpoint:                   "https://storage.yandexcloud.net",
+    region:                     process.env.YC_REGION || "eu-central-1",
+    endpoint:                   "https://object.pscloud.io",
     credentials: {
-        accessKeyId:            process.env.YC_ACCESS_KEY_ID,
-        secretAccessKey:        process.env.YC_SECRET_ACCESS_KEY,
+        accessKeyId:            process.env.KZ_ACCESS_KEY,
+        secretAccessKey:        process.env.KZ_SECRET_KEY,
     },
     requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",
@@ -443,16 +443,16 @@ class App {
                 });
 
                 res.json({
-                    uploadUrl: presignedUrl,
-                    filePath: fileName,
-                    publicUrl: `https://storage.yandexcloud.net/${bucketName}/${fileName}`
+                    uploadUrl:  presignedUrl,
+                    filePath:   fileName,
+                    publicUrl:  `https://object.pscloud.io/${bucketName}/${fileName}`
                 });
             } catch (error) {
                 res.status(500).json({ error: error.message });
             }
         });
 
-        this.app.get('/api/getSignUrl', async (req, res) => {
+        this.app.get('/api/uploadURL', async (req, res) => {
             try {
                 const result = await this.socketHandlers.checkToken(req.query);
 
@@ -460,38 +460,39 @@ class App {
                     return res.status(401).json({ error: 'Неверный токен' });
                 }
 
-                const fileName = `${req.query.cargo_id}/${result.id}/${req.query.recipient_id}/${req.query.filename}`;
-                const bucketName = 'docfotos';
+                const fileName                          = req.query.filename;
 
-                const command1 = new PutObjectCommand({
+                const bucketName                        = 'docfotos';
+
+                const command1                          = new PutObjectCommand({
                     Bucket: bucketName,
                     Key: fileName,
                     ContentType: '',
                     ChecksumAlgorithm: undefined
                 });
 
-                const presignedUrl = await getSignedUrl(s3Client, command1, {
+                const presignedUrl                      = await getSignedUrl(s3Client, command1, {
                     expiresIn: 60,
                     signableHeaders: new Set(['host']),
                 });
 
-                const command2 = new GetObjectCommand({
+                const command2                          = new GetObjectCommand({
                     Bucket: bucketName,
                     Key: fileName,
                     ContentType: '',
                     ChecksumAlgorithm: undefined
                 });
 
-                const signUrl = await getSignedUrl(s3Client, command2, {
+                const signUrl                           = await getSignedUrl(s3Client, command2, {
                     expiresIn: 60,
                     signableHeaders: new Set(['host']),
                 });
 
                 res.json({
-                    uploadUrl:    presignedUrl,
-                    filePath:     fileName,
-                    signUrl:      signUrl,
-                    publicUrl:    `https://storage.yandexcloud.net/${bucketName}/${fileName}`
+                    uploadUrl:               presignedUrl,
+                    filePath:                fileName,
+                    signUrl:                 signUrl,
+                    publicUrl:               `https://object.pscloud.io/${bucketName}/${fileName}`
                 });
             } catch (error) {
                 res.status(500).json({ error: error.message });
