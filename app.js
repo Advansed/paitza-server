@@ -210,7 +210,7 @@ class App {
     }
 
     setupRoutes() {
-        this.app.get('/api/status', (req, res) => {
+        this.app.get('/api/status',                                  (req, res) => {
             res.json({
                 status: 'running',
                 connections: this.io ? this.io.engine.clientsCount : 0,
@@ -219,11 +219,11 @@ class App {
             });
         });
 
-        this.app.get('/api/getVersion', (req, res) => {
+        this.app.get('/api/getVersion',                              (req, res) => {
             res.json({ success: true, data: process.env.APP_VERSION || '1.0.1' });
         });
 
-        this.app.post('/api/check_passport_photo', async (req, res) => {
+        this.app.post('/api/check_passport_photo',             async (req, res) => {
             try {
                 const { token, image, mimeType, mime_type, expected } = req.body;
                 const user = await this.requireToken(token);
@@ -240,7 +240,7 @@ class App {
             }
         });
 
-        this.app.post('/api/check_passport_registration', async (req, res) => {
+        this.app.post('/api/check_passport_registration',      async (req, res) => {
             try {
                 const { token, image, mimeType, mime_type, expected } = req.body;
                 const user = await this.requireToken(token);
@@ -257,7 +257,7 @@ class App {
             }
         });
 
-        this.app.post('/api/sendimage', async (req, res) => {
+        this.app.post('/api/sendimage',                        async (req, res) => {
             try {
                 const { token, recipient, cargo, image } = req.body;
                 const user = await this.requireToken(token);
@@ -279,7 +279,7 @@ class App {
             }
         });
 
-        this.app.post('/api/set_location', async (req, res) => {
+        this.app.post('/api/set_location',                     async (req, res) => {
             try {
                 const { token, recipient, cargo, image } = req.body;
                 const user = await this.requireToken(token);
@@ -304,7 +304,7 @@ class App {
             }
         });
 
-        this.app.post('/api/sendEmail', async (req, res) => {
+        this.app.post('/api/sendEmail',                        async (req, res) => {
             try {
                 const { token, email, pdf } = req.body;
                 const user = await this.requireToken(token);
@@ -371,7 +371,7 @@ class App {
             });
         }
 
-        this.app.post('/api/tinkoff_payment', async (req, res) => {
+        this.app.post('/api/tinkoff_payment',                  async (req, res) => {
             try {
                 const body = req.body || {};
                 console.log('Tinkoff callback:', {
@@ -407,7 +407,7 @@ class App {
             }
         });
 
-        this.app.get('/api/get_token', async (req, res) => {
+        this.app.get('/api/get_token',                         async (req, res) => {
             try {
                 const result = await this.socketHandlers.checkToken(req.query);
                 if (!result) {
@@ -419,7 +419,7 @@ class App {
             }
         });
 
-        this.app.get('/api/getUrl', async (req, res) => {
+        this.app.get('/api/getUrl',                            async (req, res) => {
             try {
                 const result = await this.socketHandlers.checkToken(req.query);
 
@@ -452,7 +452,7 @@ class App {
             }
         });
 
-        this.app.get('/api/uploadURL', async (req, res) => {
+        this.app.get('/api/uploadURL',                         async (req, res) => {
             try {
                 const result = await this.socketHandlers.checkToken(req.query);
 
@@ -499,7 +499,7 @@ class App {
             }
         });
 
-        this.app.get('/api/get_VKUrl', async (req, res) => {
+        this.app.get('/api/get_VKUrl',                         async (req, res) => {
             try {
                 const user = await this.requireToken(req.query);
                 if (!user) {
@@ -536,21 +536,21 @@ class App {
         });
 
         // Заглушки для страницы удаления: нужны хранимки / SMS-флоу на бэке
-        this.app.post('/api/auth/send-delete-code', async (req, res) => {
+        this.app.post('/api/auth/send-delete-code',            async (req, res) => {
             res.status(501).json({
                 success: false,
                 message: 'Удаление аккаунта ещё не подключено к API (нужна хранимка + SMS)'
             });
         });
 
-        this.app.post('/api/auth/confirm-delete', async (req, res) => {
+        this.app.post('/api/auth/confirm-delete',              async (req, res) => {
             res.status(501).json({
                 success: false,
                 message: 'Удаление аккаунта ещё не подключено к API (нужна хранимка + SMS)'
             });
         });
 
-        this.app.get('/api/privacy', (req, res) => {
+        this.app.get('/api/privacy',                                 (req, res) => {
             res.send(`
                 <!DOCTYPE html>
                 <html lang="ru">
@@ -575,7 +575,7 @@ class App {
             `);
         });
 
-        this.app.get('/api/deleteAccount', (req, res) => {
+        this.app.get('/api/deleteAccount',                           (req, res) => {
             res.send(`
                 <!DOCTYPE html>
                 <html lang="ru">
