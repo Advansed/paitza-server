@@ -239,6 +239,7 @@ class App {
 
     async handleUploadFotos(req, res) {
         try {
+            console.log("begin". req.body );
             const token = req.body?.token;
             const filename = req.body?.filename;
             const contentType = req.body?.contentType || req.file?.mimetype;
@@ -254,7 +255,7 @@ class App {
             if (!req.file?.buffer?.length) {
                 return res.status(400).json({ success: false, message: 'file обязателен' });
             }
-            
+
             console.log("user", user )
 
             const result = await uploadFotos(filename, req.file.buffer, contentType);
