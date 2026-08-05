@@ -125,6 +125,46 @@ const getFotosBuffer = async (key) => {
     };
 };
 
+/**
+ * Для AI/паспорта: взять картинку из S3 по key или из legacy base64.
+ * @returns {Promise<{ image: string, mimeType: string, filePath?: string }>}
+ *   image — data URL или base64-строка для Gemini
+ */
+const resolveImageInput = async ({
+    filename,
+    key,
+    filePath,
+    image,
+    photo,
+    file,
+    mimeType,
+    mime_type,
+} = {}) => {
+    const s3Key = filename || key || filePath;
+    if (s3Key) {
+        const loaded = await getFotosBuffer(s3Key);
+        const type = loaded.contentType || 'image/jpeg';
+        return {
+            image: `data:${type};base64,${loaded.buffer.toString('base64')}`,
+            mimeType: type,
+            filePath: loaded.filePath,
+        };
+    }
+
+    const raw = image || photo || file;
+    if (!raw) {
+        throw Object.assign(
+            new Error('Укажите filename/key (ключ в S3) или image (base64)'),
+            { status: 400 }
+        );
+    }
+
+    return {
+        image: raw,
+        mimeType: mimeType || mime_type || 'image/jpeg',
+    };
+};
+
 const decodeBase64File = (input, fallbackMime = 'application/octet-stream') => {
     if (!input || typeof input !== 'string') {
         throw new Error('image/file обязателен (base64 или data URL)');
@@ -155,6 +195,7 @@ module.exports = {
     uploadFotos,
     getFotos,
     getFotosBuffer,
+    resolveImageInput,
     decodeBase64File,
     FOTOS_BUCKET,
     S3_PUBLIC_BASE,

@@ -5,7 +5,7 @@ const path                          = require('path');
 const { DatabaseService, TinkoffPaymentService, AIService, SocketManager } 
                                     = require('./services');
 const PassportVerificationService   = require('./passportVerification');
-const { uploadFotos, decodeBase64File, getFotosBuffer } = require('./storage');
+const { uploadFotos, decodeBase64File, getFotosBuffer, resolveImageInput } = require('./storage');
 
 const GATEWAY_URL = 'https://gatewayapi.telegram.org/';
 
@@ -1139,17 +1139,21 @@ class SocketHandlers {
 
     async handlePassportCheck(socket, event, data) {
         try {
-            const image = data?.image || data?.photo || data?.file;
+            const resolved = await resolveImageInput(data || {});
             const options = {
-                mimeType: data?.mimeType || data?.mime_type,
+                mimeType: resolved.mimeType,
                 expected: data?.expected,
             };
 
             let result;
             if (event === 'check_passport_photo') {
-                result = await this.passportAI.verifyPassportPhoto(image, options);
+                result = await this.passportAI.verifyPassportPhoto(resolved.image, options);
             } else {
-                result = await this.passportAI.verifyPassportRegistration(image, options);
+                result = await this.passportAI.verifyPassportRegistration(resolved.image, options);
+            }
+
+            if (resolved.filePath) {
+                result = { ...result, filePath: resolved.filePath };
             }
 
             socket.emit(event, result);

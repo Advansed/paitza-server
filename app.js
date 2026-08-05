@@ -6,7 +6,7 @@ const cors                      = require('cors');
 const { SOCKET_CONFIG, PORT }   = require('./config');
 const SocketHandlers            = require('./socketHandlers');
 const { closePool }             = require('./services');
-const { uploadFotos, getFotos } = require('./storage');
+const { uploadFotos, getFotos, resolveImageInput } = require('./storage');
 const nodemailer                = require('nodemailer');
 const multer                    = require('multer');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
@@ -336,35 +336,45 @@ class App {
 
         this.app.post('/api/check_passport_photo',             async (req, res) => {
             try {
-                const { token, image, mimeType, mime_type, expected } = req.body;
+                const { token, expected } = req.body || {};
                 const user = await this.requireToken(token);
                 if (!user) {
                     return res.status(401).json({ success: false, message: 'Неверный токен' });
                 }
-                const result = await this.socketHandlers.passportAI.verifyPassportPhoto(image, {
-                    mimeType: mimeType || mime_type,
-                    expected,
-                });
+
+                const resolved = await resolveImageInput(req.body || {});
+                const result = await this.socketHandlers.passportAI.verifyPassportPhoto(
+                    resolved.image,
+                    { mimeType: resolved.mimeType, expected }
+                );
+                if (resolved.filePath) {
+                    result.filePath = resolved.filePath;
+                }
                 res.json(result);
             } catch (error) {
-                res.json({ success: false, message: error.message });
+                res.status(error.status || 500).json({ success: false, message: error.message });
             }
         });
 
         this.app.post('/api/check_passport_registration',      async (req, res) => {
             try {
-                const { token, image, mimeType, mime_type, expected } = req.body;
+                const { token, expected } = req.body || {};
                 const user = await this.requireToken(token);
                 if (!user) {
                     return res.status(401).json({ success: false, message: 'Неверный токен' });
                 }
-                const result = await this.socketHandlers.passportAI.verifyPassportRegistration(image, {
-                    mimeType: mimeType || mime_type,
-                    expected,
-                });
+
+                const resolved = await resolveImageInput(req.body || {});
+                const result = await this.socketHandlers.passportAI.verifyPassportRegistration(
+                    resolved.image,
+                    { mimeType: resolved.mimeType, expected }
+                );
+                if (resolved.filePath) {
+                    result.filePath = resolved.filePath;
+                }
                 res.json(result);
             } catch (error) {
-                res.json({ success: false, message: error.message });
+                res.status(error.status || 500).json({ success: false, message: error.message });
             }
         });
 
