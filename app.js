@@ -239,7 +239,7 @@ class App {
 
     async handleUploadFotos(req, res) {
         try {
-            console.log("begin". req.body );
+            console.log("begin", req.body );
             const token = req.body?.token;
             const filename = req.body?.filename;
             const contentType = req.body?.contentType || req.file?.mimetype;
