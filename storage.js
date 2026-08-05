@@ -31,11 +31,17 @@ const assertCredentials = () => {
 };
 
 const uploadFotos = async (key, body, contentType) => {
+    console.log("uploadFotos", key, body, contentType);
     const filePath = normalizeKey(key);
     if (!body) {
         throw new Error('Тело файла пустое');
     }
+    
+    console.log("assertCredentials");
+
     assertCredentials();
+
+    console.log("PutObjectCommand");
 
     await s3Client.send(new PutObjectCommand({
         Bucket: FOTOS_BUCKET,
@@ -44,6 +50,8 @@ const uploadFotos = async (key, body, contentType) => {
         ContentType: contentType || 'application/octet-stream',
         ChecksumAlgorithm: undefined,
     }));
+
+    console.log("filepath");
 
     return {
         filePath,
