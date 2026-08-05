@@ -35,13 +35,13 @@ const vkClient = new S3Client({
 const s3Client = new S3Client({
     region:                     process.env.YC_REGION || "eu-central-1",
     endpoint:                   "https://object.pscloud.io",
+    forcePathStyle:             true,
     credentials: {
         accessKeyId:            process.env.KZ_ACCESS_KEY,
         secretAccessKey:        process.env.KZ_SECRET_KEY,
     },
     requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",
-    signatureVersion: 'v4'
 });
 
 const transporter = nodemailer.createTransport({

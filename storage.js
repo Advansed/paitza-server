@@ -1,6 +1,6 @@
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 
-const FOTOS_BUCKET = 'fotos';
+const FOTOS_BUCKET = 'kz-files';
 
 const S3_ENDPOINT = process.env.S3_ENDPOINT || 'https://object.pscloud.io';
 const S3_PUBLIC_BASE = (process.env.S3_PUBLIC_BASE || 'https://object.pscloud.io').replace(/\/$/, '');
@@ -8,13 +8,13 @@ const S3_PUBLIC_BASE = (process.env.S3_PUBLIC_BASE || 'https://object.pscloud.io
 const s3Client = new S3Client({
     region: process.env.YC_REGION || process.env.S3_REGION || 'eu-central-1',
     endpoint: S3_ENDPOINT,
+    forcePathStyle: true,
     credentials: {
         accessKeyId: process.env.KZ_ACCESS_KEY,
         secretAccessKey: process.env.KZ_SECRET_KEY,
     },
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
-    signatureVersion: 'v4',
 });
 
 const normalizeKey = (key) => {
@@ -30,28 +30,46 @@ const assertCredentials = () => {
     }
 };
 
+const formatS3Error = (error) => {
+    const status = error.$metadata?.httpStatusCode;
+    const code = error.Code || error.code || error.name;
+    const details = [
+        code,
+        status ? `HTTP ${status}` : null,
+        error.message,
+    ].filter(Boolean).join(' | ');
+    const err = new Error(details || 'S3 UnknownError');
+    err.status = status || 500;
+    err.cause = error;
+    return err;
+};
+
 const uploadFotos = async (key, body, contentType) => {
-    console.log("uploadFotos", key, body, contentType);
     const filePath = normalizeKey(key);
     if (!body) {
         throw new Error('Тело файла пустое');
     }
-    
-    console.log("assertCredentials");
 
     assertCredentials();
 
-    console.log("PutObjectCommand");
-
-    await s3Client.send(new PutObjectCommand({
-        Bucket: FOTOS_BUCKET,
-        Key: filePath,
-        Body: body,
-        ContentType: contentType || 'application/octet-stream',
-        ChecksumAlgorithm: undefined,
-    }));
-
-    console.log("filepath");
+    try {
+        await s3Client.send(new PutObjectCommand({
+            Bucket: FOTOS_BUCKET,
+            Key: filePath,
+            Body: body,
+            ContentType: contentType || 'application/octet-stream',
+        }));
+    } catch (error) {
+        console.error('❌ PutObject:', {
+            bucket: FOTOS_BUCKET,
+            key: filePath,
+            name: error.name,
+            code: error.Code || error.code,
+            status: error.$metadata?.httpStatusCode,
+            message: error.message,
+        });
+        throw formatS3Error(error);
+    }
 
     return {
         filePath,
@@ -81,7 +99,15 @@ const getFotos = async (key) => {
             notFound.status = 404;
             throw notFound;
         }
-        throw error;
+        console.error('❌ GetObject:', {
+            bucket: FOTOS_BUCKET,
+            key: filePath,
+            name: error.name,
+            code: error.Code || error.code,
+            status: error.$metadata?.httpStatusCode,
+            message: error.message,
+        });
+        throw formatS3Error(error);
     }
 };
 
