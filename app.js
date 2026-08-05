@@ -243,6 +243,7 @@ class App {
             const filename = req.body?.filename;
             const contentType = req.body?.contentType || req.file?.mimetype;
 
+            console.log("first 1", token )
             const user = await this.requireToken(token);
             if (!user) {
                 return res.status(401).json({ success: false, message: 'Неверный токен' });
@@ -253,6 +254,8 @@ class App {
             if (!req.file?.buffer?.length) {
                 return res.status(400).json({ success: false, message: 'file обязателен' });
             }
+            
+            console.log("user", user )
 
             const result = await uploadFotos(filename, req.file.buffer, contentType);
             res.json({ success: true, ...result });
