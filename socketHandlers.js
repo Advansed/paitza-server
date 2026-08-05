@@ -5,6 +5,7 @@ const path                          = require('path');
 const { DatabaseService, TinkoffPaymentService, AIService, SocketManager } 
                                     = require('./services');
 const PassportVerificationService   = require('./passportVerification');
+const { uploadFotos, decodeBase64File, getFotosBuffer } = require('./storage');
 
 const GATEWAY_URL = 'https://gatewayapi.telegram.org/';
 
@@ -626,6 +627,8 @@ class SocketHandlers {
         socket.on('set_user',               (data) => this.handleProfile(socket, 'set_user', data));
         socket.on('set_passport',           (data) => this.handleProfile(socket, 'set_passport', data));
         socket.on('get_passport',           (data) => this.handleProfile(socket, 'get_passport', data));
+        socket.on('upload_doc',             (data) => this.handleUploadDoc(socket, data));
+        socket.on('get_doc',                (data) => this.handleGetDoc(socket, data));
         socket.on('check_passport_photo',   (data) => this.handlePassportCheck(socket, 'check_passport_photo', data));
         socket.on('check_passport_registration', (data) => this.handlePassportCheck(socket, 'check_passport_registration', data));
         socket.on('set_transport',          (data) => this.handleProfile(socket, 'set_transport', data));
@@ -1051,6 +1054,85 @@ class SocketHandlers {
             socket.emit(event, {
                 success: false,
                 message: 'Ошибка обработки запроса ЛК'
+            });
+        }
+    }
+
+    async handleUploadDoc(socket, data) {
+        try {
+            const token = data?.token;
+            const filename = data?.filename;
+            const raw = data?.image || data?.file;
+
+            const user = await this.checkToken({ token });
+            if (!user) {
+                return socket.emit('upload_doc', {
+                    success: false,
+                    message: 'Неверный токен',
+                });
+            }
+            if (!filename) {
+                return socket.emit('upload_doc', {
+                    success: false,
+                    message: 'filename обязателен',
+                });
+            }
+
+            const { buffer, mimeType } = decodeBase64File(
+                raw,
+                data?.mimeType || data?.mime_type || 'application/octet-stream'
+            );
+
+            if (buffer.length > 20 * 1024 * 1024) {
+                return socket.emit('upload_doc', {
+                    success: false,
+                    message: 'Файл больше 20 MB',
+                });
+            }
+
+            const result = await uploadFotos(filename, buffer, mimeType);
+            socket.emit('upload_doc', { success: true, ...result });
+            return result;
+        } catch (error) {
+            console.error('❌ upload_doc:', error.message);
+            socket.emit('upload_doc', {
+                success: false,
+                message: error.message || 'Ошибка загрузки файла',
+            });
+        }
+    }
+
+    async handleGetDoc(socket, data) {
+        try {
+            const token = data?.token;
+            const key = data?.filename || data?.key || data?.filePath;
+
+            const user = await this.checkToken({ token });
+            if (!user) {
+                return socket.emit('get_doc', {
+                    success: false,
+                    message: 'Неверный токен',
+                });
+            }
+            if (!key) {
+                return socket.emit('get_doc', {
+                    success: false,
+                    message: 'filename (key) обязателен',
+                });
+            }
+
+            const { filePath, buffer, contentType } = await getFotosBuffer(key);
+            socket.emit('get_doc', {
+                success: true,
+                filePath,
+                contentType,
+                data: buffer.toString('base64'),
+            });
+        } catch (error) {
+            console.error('❌ get_doc:', error.message);
+            socket.emit('get_doc', {
+                success: false,
+                message: error.message || 'Ошибка получения файла',
             });
         }
     }

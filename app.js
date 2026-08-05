@@ -6,7 +6,9 @@ const cors                      = require('cors');
 const { SOCKET_CONFIG, PORT }   = require('./config');
 const SocketHandlers            = require('./socketHandlers');
 const { closePool }             = require('./services');
+const { uploadFotos, getFotos } = require('./storage');
 const nodemailer                = require('nodemailer');
+const multer                    = require('multer');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl }          = require("@aws-sdk/s3-request-presigner");
 
@@ -63,6 +65,13 @@ const LARGE_BODY_PATHS = new Set([
     '/api/check_passport_photo',
     '/api/check_passport_registration',
 ]);
+
+const MULTIPART_PATHS = new Set(['/api/upload_doc', '/api/uploadFotos']);
+
+const uploadDoc = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 },
+});
 
 class App {
 
@@ -163,6 +172,10 @@ class App {
 
     setupMiddleware() {
         this.app.use((req, res, next) => {
+            // multipart обрабатывает multer на маршруте — json parser пропускаем
+            if (MULTIPART_PATHS.has(req.path)) {
+                return next();
+            }
             const parser = LARGE_BODY_PATHS.has(req.path) ? jsonLarge : jsonDefault;
             parser(req, res, (err) => {
                 if (err) return next(err);
@@ -209,7 +222,94 @@ class App {
         });
     }
 
+    multerSingle(req, res, next) {
+        uploadDoc.single('file')(req, res, (err) => {
+            if (err) {
+                const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+                return res.status(status).json({
+                    success: false,
+                    message: err.code === 'LIMIT_FILE_SIZE'
+                        ? 'Файл больше 20 MB'
+                        : err.message,
+                });
+            }
+            next();
+        });
+    }
+
+    async handleUploadFotos(req, res) {
+        try {
+            const token = req.body?.token;
+            const filename = req.body?.filename;
+            const contentType = req.body?.contentType || req.file?.mimetype;
+
+            const user = await this.requireToken(token);
+            if (!user) {
+                return res.status(401).json({ success: false, message: 'Неверный токен' });
+            }
+            if (!filename) {
+                return res.status(400).json({ success: false, message: 'filename обязателен' });
+            }
+            if (!req.file?.buffer?.length) {
+                return res.status(400).json({ success: false, message: 'file обязателен' });
+            }
+
+            const result = await uploadFotos(filename, req.file.buffer, contentType);
+            res.json({ success: true, ...result });
+        } catch (error) {
+            console.error('❌ uploadFotos:', error.message);
+            res.status(500).json({ success: false, message: error.message });
+        }
+    }
+
+    async handleGetFotos(req, res) {
+        try {
+            const token = req.query.token;
+            const key = req.query.filename || req.query.key;
+
+            const user = await this.requireToken(token);
+            if (!user) {
+                return res.status(401).json({ success: false, message: 'Неверный токен' });
+            }
+            if (!key) {
+                return res.status(400).json({ success: false, message: 'filename (key) обязателен' });
+            }
+
+            const { body, contentType, contentLength, filePath } = await getFotos(key);
+
+            res.setHeader('Content-Type', contentType);
+            if (contentLength != null) {
+                res.setHeader('Content-Length', String(contentLength));
+            }
+            res.setHeader(
+                'Content-Disposition',
+                `inline; filename="${encodeURIComponent(filePath.split('/').pop() || 'file')}"`
+            );
+            res.setHeader('Cache-Control', 'private, max-age=300');
+
+            if (typeof body.pipe === 'function') {
+                body.pipe(res);
+            } else if (body && typeof body.transformToByteArray === 'function') {
+                const bytes = await body.transformToByteArray();
+                res.send(Buffer.from(bytes));
+            } else {
+                const chunks = [];
+                for await (const chunk of body) {
+                    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                }
+                res.send(Buffer.concat(chunks));
+            }
+        } catch (error) {
+            console.error('❌ getFotos:', error.message);
+            if (res.headersSent) {
+                return res.destroy(error);
+            }
+            res.status(error.status || 500).json({ success: false, message: error.message });
+        }
+    }
+
     setupRoutes() {
+
         this.app.get('/api/status',                                  (req, res) => {
             res.json({
                 status: 'running',
@@ -222,6 +322,13 @@ class App {
         this.app.get('/api/getVersion',                              (req, res) => {
             res.json({ success: true, data: process.env.APP_VERSION || '1.0.1' });
         });
+
+        this.app.post('/api/uploadFotos',                            (req, res, next) => this.multerSingle(req, res, next),
+                                                                     (req, res) => this.handleUploadFotos(req, res)
+        );
+
+        this.app.get('/api/getFotos',                                (req, res) => this.handleGetFotos(req, res));
+
 
         this.app.post('/api/check_passport_photo',             async (req, res) => {
             try {
