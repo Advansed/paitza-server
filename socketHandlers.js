@@ -27,10 +27,10 @@ const sendSMS                                   = async (to, msg) => {
     try {
         const response = await axios.get(baseUrl, {
             params: {
-                api_id: apiId,
-                to: to,
-                msg: msg,
-                json: 1
+                api_id:     apiId,
+                to:         to,
+                msg:        msg,
+                json:       1
             }
         });
 
@@ -722,8 +722,8 @@ class SocketHandlers {
                             // Обычное СМС
                             try {
                                 const text = "СМС для проверки номера - " + result.pincode 
-                                const ch = await sendSMS(result.phone, text || ""); // текст должен быть в data или определен
-                                console.log('send_sms success', ch);
+                                //const ch = await sendSMS(result.phone, text || ""); // текст должен быть в data или определен
+                                //console.log('send_sms success', ch);
                                 socket.emit(event, ch);
                             } catch (e) {
                                 console.error('send_sms error', e.message);
