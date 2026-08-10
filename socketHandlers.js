@@ -724,7 +724,7 @@ class SocketHandlers {
                                 const text = "СМС для проверки номера - " + result.pincode 
                                 //const ch = await sendSMS(result.phone, text || ""); // текст должен быть в data или определен
                                 //console.log('send_sms success', ch);
-                                socket.emit(event, ch);
+                                socket.emit(event, { success: true, message: "СМС отправлен" });
                             } catch (e) {
                                 console.error('send_sms error', e.message);
                                 socket.emit(event, {success: false, message: e.message });
