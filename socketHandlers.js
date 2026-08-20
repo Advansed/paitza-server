@@ -630,13 +630,15 @@ class SocketHandlers {
         socket.on('upload_doc',             (data) => this.handleUploadDoc(socket, data));
         socket.on('get_doc',                (data) => this.handleGetDoc(socket, data));
         socket.on('check_passport_photo',   (data) => this.handlePassportCheck(socket, 'check_passport_photo', data));
-        socket.on('check_passport_registration', (data) => this.handlePassportCheck(socket, 'check_passport_registration', data));
+        socket.on('check_passport_registration', 
+                                            (data) => this.handlePassportCheck(socket, 'check_passport_registration', data));
         socket.on('set_transport',          (data) => this.handleProfile(socket, 'set_transport', data));
         socket.on('get_transport',          (data) => this.handleProfile(socket, 'get_transport', data));
         socket.on('set_company',            (data) => this.handleProfile(socket, 'set_company', data));
         socket.on('get_company',            (data) => this.handleProfile(socket, 'get_company', data));
         socket.on('send_email',             (data) => this.handleProfile(socket, 'send_email', data));
         socket.on('set_location',           (data) => this.handleProfile(socket, 'set_location', data));
+        socket.on('get_transport_types',    (data) => this.handleProfile(socket, 'get_transport_types', data));
         
         
         // AI
