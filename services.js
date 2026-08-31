@@ -1,11 +1,14 @@
-const sql = require('mssql');
-const axios = require('axios');
-const crypto = require('crypto');
-const { sqlConfig, TINKOFF_CONFIG, anthropic } = require('./config');
+const sql               = require('mssql');
+const axios             = require('axios');
+const crypto            = require('crypto');
+const {   sqlConfig
+        , TINKOFF_CONFIG
+        , anthropic } 
+                        = require('./config');
 
 // База данных
-let globalPool = null;
-let isPoolConnecting = false;
+let globalPool          = null;
+let isPoolConnecting    = false;
 
 class DatabaseService {
     async initializePool() {
@@ -154,9 +157,28 @@ class TinkoffPaymentService {
             TerminalKey:        this.config.terminalKey
         });
 
+        const agent         = new https.Agent({
+            rejectUnauthorized: true,
+            // Явно указываем использовать системные сертификаты
+            ca: require('fs').readFileSync('/etc/ssl/certs/ca-certificates.crt')
+          });
+    
         console.log(requestData)
         try {
-            const response = await axios.post(`${this.config.baseURL}Init`, requestData);
+            const response = await axios.post(
+                  `${this.config.baseURL}Init`
+                , requestData
+                ,  {
+                    httpsAgent: agent,
+                    // Увеличьте таймауты из-за прокси
+                    timeout: 30000,
+                    // Добавьте заголовки для прокси
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Connection': 'keep-alive'
+                    }
+                }
+            );
             console.log('init', response.data)
             if (response.data.Success) {
                 // Получаем QR-код
@@ -199,7 +221,20 @@ class TinkoffPaymentService {
 
         try {
             console.log("параметры getQR", requestData)
-            const response = await axios.post(`${this.config.baseURL}GetQr`, requestData);
+            const response = await axios.post(
+                `${this.config.baseURL}GetQr`
+                , requestData
+                ,  {
+                    httpsAgent: agent,
+                    // Увеличьте таймауты из-за прокси
+                    timeout: 30000,
+                    // Добавьте заголовки для прокси
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Connection': 'keep-alive'
+                    }
+                }
+            );
             console.log('GetQr', response.data )
             
             if (response.data.Success) {

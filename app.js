@@ -496,25 +496,25 @@ class App {
             try {
                 const body = req.body || {};
                 console.log('Tinkoff callback:', {
-                    Status: body.Status,
-                    PaymentId: body.PaymentId,
-                    OrderId: body.OrderId
+                    Status:                 body.Status,
+                    PaymentId:              body.PaymentId,
+                    OrderId:                body.OrderId
                 });
 
                 if (body.OrderId && body.Status) {
                     const statusMap = {
-                        CONFIRMED: 2,
-                        AUTHORIZED: 2,
-                        DEADLINE_EXPIRED: 3,
-                        REJECTED: 4,
-                        CANCELED: 4,
-                        REVERSED: 4
+                        CONFIRMED:          2,
+                        AUTHORIZED:         2,
+                        DEADLINE_EXPIRED:   3,
+                        REJECTED:           4,
+                        CANCELED:           4,
+                        REVERSED:           4
                     };
                     const orderStatus = statusMap[body.Status];
                     if (orderStatus !== undefined) {
                         await this.runProcedure('set_payment', {
-                            id: body.OrderId,
-                            paymentId: body.PaymentId,
+                            id:             body.OrderId,
+                            paymentId:      body.PaymentId,
                             orderStatus
                         });
                     }

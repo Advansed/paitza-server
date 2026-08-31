@@ -1,15 +1,15 @@
-const axios                         = require('axios');
-const puppeteer                     = require('puppeteer');
-const fs                            = require('fs');
-const path                          = require('path');
+const axios                                     = require('axios');
+const puppeteer                                 = require('puppeteer');
+const fs                                        = require('fs');
+const path                                      = require('path');
 const { DatabaseService, TinkoffPaymentService, AIService, SocketManager } 
-                                    = require('./services');
-const PassportVerificationService   = require('./passportVerification');
+                                                = require('./services');
+const PassportVerificationService               = require('./passportVerification');
 const { uploadFotos, decodeBase64File, getFotosBuffer, resolveImageInput } = require('./storage');
 
-const GATEWAY_URL = 'https://gatewayapi.telegram.org/';
+const GATEWAY_URL                               = 'https://gatewayapi.telegram.org/';
 
-const gatewayHeaders = {
+const gatewayHeaders                            = {
     'Authorization': `Bearer ${process.env.TELEGRAM_KEY}`,
     'Content-Type': 'application/json'
 };
