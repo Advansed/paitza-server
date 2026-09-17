@@ -586,6 +586,7 @@ class SocketHandlers {
         socket.on('get_cargo_archives',     (data) => this.handleCargo(socket, 'get_cargo_archives', data));
         socket.on('set_cargo',              (data) => this.handleCargo(socket, 'set_cargo', data));
         socket.on('publish_cargo',          (data) => this.handleCargo(socket, 'publish_cargo', data));
+        socket.on('unpublish_cargo',        (data) => this.handleCargo(socket, 'unpublish_cargo', data));
         socket.on('set_document',           (data) => this.handleCargo(socket, 'set_document', data));
         socket.on('del_document',           (data) => this.handleCargo(socket, 'del_document', data));
         socket.on('set_inv',                (data) => this.handleCargo(socket, 'set_inv', data));
@@ -788,7 +789,15 @@ class SocketHandlers {
                     break;
                     
                 case 'publish_cargo':
-                    result = await this.handleMethod(socket, 'publish', data);
+                        result = await this.handleMethod(socket, 'publish', data);
+                        if (result.success) {
+                            // Уведомляем водителей о новом грузе
+                            this.socketManager.broadcastToUserType(2, 'new_cargo', result.data);
+                        }
+                        break;
+                        
+                case 'unpublish_cargo':
+                    result = await this.handleMethod(socket, 'unpublish', data);
                     if (result.success) {
                         // Уведомляем водителей о новом грузе
                         this.socketManager.broadcastToUserType(2, 'new_cargo', result.data);
