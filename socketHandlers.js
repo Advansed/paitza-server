@@ -613,6 +613,7 @@ class SocketHandlers {
         socket.on('create_payment_sbp',     (data) => this.handlePayment(socket, 'create_payment_sbp', data));
         socket.on('get_sbp_banks',          (data) => this.handlePayment(socket, 'get_sbp_banks', data));
         socket.on('create_invoice',         (data) => this.handlePayment(socket, 'create_invoice', data));
+        socket.on('get_deals',              (data) => this.handlePayment(socket, 'get_deals', data));
 
         // ЛИЧНЫЙ КАБИНЕТ
         socket.on('get_balance',            (data) => this.handlePersonalAccount(socket, 'get_balance', data));
