@@ -358,7 +358,10 @@ class SocketManager {
             socket.userToken = userData.token;
             socket.user_type = userData.user_type;
 
-            this.socketsByUserId.set(userData.id, socket);
+            if (!this.socketsByUserId.has(userData.id)) {
+                this.socketsByUserId.set(userData.id, new Set());
+            }
+            this.socketsByUserId.get(userData.id).add(socket);
             
             if (!this.socketsByUserType.has(userData.user_type)) {
                 this.socketsByUserType.set(userData.user_type, new Set());
@@ -368,8 +371,12 @@ class SocketManager {
     }
 
     unregisterSocket(socket) {
-        if (socket.userId) {
-            this.socketsByUserId.delete(socket.userId);
+        if (socket.userId && this.socketsByUserId.has(socket.userId)) {
+            const set = this.socketsByUserId.get(socket.userId);
+            set.delete(socket);
+            if (set.size === 0) {
+                this.socketsByUserId.delete(socket.userId);
+            }
         }
         
         if (socket.user_type && this.socketsByUserType.has(socket.user_type)) {
@@ -377,16 +384,44 @@ class SocketManager {
         }
     }
 
+    findSockets(userId) {
+        const set = this.socketsByUserId.get(userId);
+        if (!set) return [];
+        return [...set].filter(s => s.connected);
+    }
+
     findSocket(userId) {
-        return this.socketsByUserId.get(userId) || null;
+        const sockets = this.findSockets(userId);
+        return sockets[0] || null;
+    }
+
+    notifyUser(userId, event, payload) {
+        const sockets = this.findSockets(userId);
+        sockets.forEach(socket => {
+            socket.emit(event, payload);
+        });
+        return sockets.length;
+    }
+
+    findSocketsByUserType(userType) {
+        const set = this.socketsByUserType.get(userType);
+        if (!set) return [];
+        return [...set].filter(s => s.connected);
     }
 
     broadcastToUserType(userType, event, data) {
-        const sockets = this.socketsByUserType.get(userType);
-        if (sockets) {
-            sockets.forEach(socket => {
-                socket.emit(event, data);
-            });
+        this.findSocketsByUserType(userType).forEach(socket => {
+            socket.emit(event, data);
+        });
+    }
+
+    broadcastOnline(event, data, exceptSocket = null) {
+        for (const set of this.socketsByUserId.values()) {
+            for (const socket of set) {
+                if (socket.connected && socket !== exceptSocket) {
+                    socket.emit(event, data);
+                }
+            }
         }
     }
 }

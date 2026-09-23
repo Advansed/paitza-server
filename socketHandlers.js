@@ -568,6 +568,73 @@ class SocketHandlers {
         }
     }
 
+    async emitWithAck(socket, event, payload, { retries = 2, timeoutMs = 3000 } = {}) {
+        if (!socket || !socket.connected) return false;
+
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            if (!socket.connected) return false;
+
+            const ok = await new Promise((resolve) => {
+                try {
+                    socket.timeout(timeoutMs).emit(event, payload, (err) => {
+                        resolve(!err);
+                    });
+                } catch (e) {
+                    socket.emit(event, payload);
+                    resolve(true);
+                }
+            });
+
+            if (ok) return true;
+        }
+
+        return false;
+    }
+
+    notifyOpponentTransport(fromSocket, recipientId, extra = {}) {
+        if (!recipientId) return 0;
+
+        const sockets = this.socketManager.findSockets(recipientId);
+        const payload = {
+            cargo: extra.cargo,
+            status: extra.status,
+            event: extra.event,
+            from: fromSocket.userId,
+            timestamp: new Date().toISOString(),
+        };
+
+        void Promise.all(sockets.map((opponent) =>
+            this.emitWithAck(opponent, 'cargo_status', payload)
+        ));
+
+        return sockets.length;
+    }
+
+    refreshOnlineDriversWorks() {
+        const sockets = this.socketManager.findSocketsByUserType(2)
+            .filter(s => s.userToken);
+
+        const byUser = new Map();
+        for (const s of sockets) {
+            const key = s.userId || s.userToken;
+            if (!byUser.has(key)) byUser.set(key, []);
+            byUser.get(key).push(s);
+        }
+
+        void Promise.all([...byUser.values()].map(async (group) => {
+            try {
+                const data = await this.db.executeProcedure('get_works', {
+                    token: group[0].userToken,
+                });
+                for (const s of group) {
+                    if (s.connected) s.emit('get_works', data);
+                }
+            } catch (error) {
+                console.error('❌ get_works для онлайн-водителя:', error);
+            }
+        }));
+    }
+
     handleConnection(socket) {
         console.log('🔌 Новое подключение:', socket.id);
         socket.emit('authenticated', { success: true, message: 'Подключение установлено' });
@@ -793,16 +860,14 @@ class SocketHandlers {
                 case 'publish_cargo':
                         result = await this.handleMethod(socket, 'publish', data);
                         if (result.success) {
-                            // Уведомляем водителей о новом грузе
-                            this.socketManager.broadcastToUserType(2, 'new_cargo', result.data);
+                            this.refreshOnlineDriversWorks();
                         }
                         break;
                         
                 case 'unpublish_cargo':
                     result = await this.handleMethod(socket, 'unpublish', data);
                     if (result.success) {
-                        // Уведомляем водителей о новом грузе
-                        this.socketManager.broadcastToUserType(2, 'new_cargo', result.data);
+                        this.refreshOnlineDriversWorks();
                     }
                     break;
                     
@@ -825,28 +890,20 @@ class SocketHandlers {
                     case 'set_inv':
                         result = await this.handleMethod(socket, 'set_inv', data);
                         if (result.success) {
-                            // Уведомляем водителей о новом грузе
-                            await this.handleMethod(socket, 'get_cargos', { token: data.token });
-                            const recipientSocket = this.socketManager.findSocket(data.recipient);
-                            if (recipientSocket) {
-                                await this.handleMethod(recipientSocket, 'get_works', { 
-                                    token: recipientSocket.userToken 
-                                });
-                            }
+                            this.notifyOpponentTransport(socket, data.recipient, {
+                                cargo: data.cargo,
+                                event: 'set_inv',
+                            });
                         }
                         break;
                                     
                     case 'del_offer':
                         result = await this.handleMethod(socket, 'del_offer', data);
                         if (result.success) {
-                            // Уведомляем водителей о новом грузе
-                            await this.handleMethod(socket, 'get_cargos', { token: data.token });
-                            const recipientSocket = this.socketManager.findSocket(data.recipient);
-                            if (recipientSocket) {
-                                await this.handleMethod(recipientSocket, 'get_works', { 
-                                    token: recipientSocket.userToken 
-                                });
-                            }
+                            this.notifyOpponentTransport(socket, data.recipient, {
+                                cargo: data.cargo,
+                                event: 'del_offer',
+                            });
                         }
                         break;
                                 
@@ -860,18 +917,24 @@ class SocketHandlers {
 
     async handleDriver(socket, event, data) {
         try {
-            let result = await this.handleMethod(socket, event, data);
-            
-            // Уведомляем заказчика об изменениях
-            if (result.success && data.recipient) {
-                const recipientSocket = this.socketManager.findSocket(data.recipient);
-                if (recipientSocket) {
-                    await this.handleMethod(recipientSocket, 'get_cargos', { 
-                        token: recipientSocket.userToken 
-                    });
-                }
-                await this.handleMethod(socket, 'get_works', data)
+            const mutations = new Set(['set_status', 'set_offer', 'del_offer']);
+            const result = await this.handleMethod(socket, event, data);
+
+            if (!mutations.has(event) || !result.success) {
+                return result;
             }
+
+            const recipientId = data.recipient
+                || result.recipient
+                || result.data?.recipient;
+
+            this.notifyOpponentTransport(socket, recipientId, {
+                cargo: data.cargo || result.cargo || result.data?.cargo,
+                status: data.status || result.status || result.data?.status,
+                event,
+            });
+
+            return result;
         } catch (error) {
             console.error(`❌ Ошибка обработки водителя ${event}:`, error);
         }
