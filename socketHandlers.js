@@ -706,6 +706,10 @@ class SocketHandlers {
         socket.on('get_transport',          (data) => this.handleProfile(socket, 'get_transport', data));
         socket.on('set_company',            (data) => this.handleProfile(socket, 'set_company', data));
         socket.on('get_company',            (data) => this.handleProfile(socket, 'get_company', data));
+        socket.on('get_company_members',    (data) => this.handleProfile(socket, 'get_company_members', data));
+        socket.on('add_company_member',     (data) => this.handleProfile(socket, 'add_company_member', data));
+        socket.on('upd_company_member',     (data) => this.handleProfile(socket, 'upd_company_member', data));
+        socket.on('del_company_member',     (data) => this.handleProfile(socket, 'del_company_member', data));
         socket.on('send_email',             (data) => this.handleProfile(socket, 'send_email', data));
         socket.on('set_location',           (data) => this.handleProfile(socket, 'set_location', data));
         socket.on('get_transport_types',    (data) => this.handleProfile(socket, 'get_transport_types', data));
@@ -1270,8 +1274,16 @@ class SocketHandlers {
                 case 'set_company':
                     result = await this.handleMethod(socket, 'set_company', data);
                     if (result.success) {
-                        // После сохранения компании загружаем обновленные данные
                         await this.handleMethod(socket, 'get_company', data);
+                    }
+                    break;
+
+                case 'add_company_member':
+                case 'upd_company_member':
+                case 'del_company_member':
+                    result = await this.handleMethod(socket, event, data);
+                    if (result.success) {
+                        await this.handleMethod(socket, 'get_company_members', data);
                     }
                     break;
                     
